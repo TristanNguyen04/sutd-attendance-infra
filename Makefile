@@ -6,13 +6,14 @@ fmt:
 fmt-check:
 	terraform fmt -check -recursive
 
-# Validates each stack without touching remote state.
+# Validates each stack without touching remote state. A separate TF_DATA_DIR keeps this independent
+# of the real `terraform init` (whose stored S3 backend would otherwise need AWS credentials).
 validate:
 	@for d in stacks/*/; do \
 		if ls $$d*.tf >/dev/null 2>&1; then \
 			echo "==> $$d"; \
-			terraform -chdir=$$d init -backend=false -input=false >/dev/null && \
-			terraform -chdir=$$d validate || exit 1; \
+			TF_DATA_DIR=.terraform-check terraform -chdir=$$d init -backend=false -input=false >/dev/null && \
+			TF_DATA_DIR=.terraform-check terraform -chdir=$$d validate || exit 1; \
 		fi; \
 	done
 
