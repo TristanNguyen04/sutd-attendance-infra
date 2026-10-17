@@ -86,11 +86,23 @@ resource "aws_s3_bucket_policy" "state" {
 
 # ---------------------------------------------------------------- GitHub Actions OIDC
 
-# An AWS account can have only one provider per URL. If one already exists, import it:
-#   terraform import aws_iam_openid_connect_provider.github <provider arn>
+# An AWS account can have only one provider per URL, and other projects may already use it.
+# When create_oidc_provider is false it is only looked up: this stack never changes or destroys it.
 resource "aws_iam_openid_connect_provider" "github" {
+  count = var.create_oidc_provider ? 1 : 0
+
   url            = "https://token.actions.githubusercontent.com"
   client_id_list = ["sts.amazonaws.com"]
+}
+
+data "aws_iam_openid_connect_provider" "github" {
+  count = var.create_oidc_provider ? 0 : 1
+
+  url = "https://token.actions.githubusercontent.com"
+}
+
+locals {
+  oidc_provider_arn = var.create_oidc_provider ? aws_iam_openid_connect_provider.github[0].arn : data.aws_iam_openid_connect_provider.github[0].arn
 }
 
 # Plan role: read-only. Used on pull requests and for the plan step of the apply workflow.
@@ -100,7 +112,7 @@ data "aws_iam_policy_document" "plan_trust" {
 
     principals {
       type        = "Federated"
-      identifiers = [aws_iam_openid_connect_provider.github.arn]
+      identifiers = [local.oidc_provider_arn]
     }
 
     condition {
@@ -139,7 +151,7 @@ data "aws_iam_policy_document" "apply_trust" {
 
     principals {
       type        = "Federated"
-      identifiers = [aws_iam_openid_connect_provider.github.arn]
+      identifiers = [local.oidc_provider_arn]
     }
 
     condition {

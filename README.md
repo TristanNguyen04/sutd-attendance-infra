@@ -56,17 +56,19 @@ PR plans use `-refresh=false` and a role that cannot read secrets, so they never
 
 ## First-time setup (one-off)
 
-1. Secure the AWS account: root MFA, no root access keys.
-2. Edit the `CHANGE_ME` values: `github_owner` in `bootstrap` and `platform`, `alert_email` in `observability`, the two service repo names in `platform`, `jwt_issuer` in `gateway`.
-3. Apply `bootstrap` with local state, then move its state into the bucket it creates:
+1. Secure the AWS account: MFA on the root user, no root access keys. Work as an admin IAM user (or Identity Center user) with MFA, never as root. Sign in from the terminal with `aws login --profile sutd-admin`, then `export AWS_PROFILE=sutd-admin` and check `aws sts get-caller-identity`.
+2. Edit the `CHANGE_ME` values: `github_owner` in `bootstrap` and `platform`, `alert_email` in `observability`, the two service repo names in `platform`. `jwt_issuer` in `gateway` can wait until `gateway` is applied.
+3. Apply `bootstrap` with local state, then move its state into the bucket it creates. Read the bucket name before restoring `backend.tf`, because `terraform output` stops working once the backend is configured but not yet initialised:
    ```
    cd stacks/bootstrap
    mv backend.tf backend.tf.off
    terraform init && terraform apply
+   BUCKET=$(terraform output -raw state_bucket)
    mv backend.tf.off backend.tf
-   terraform init -migrate-state -backend-config="bucket=$(terraform output -raw state_bucket)"
+   terraform init -migrate-state -backend-config="bucket=$BUCKET"
    ```
-   If the account already has a GitHub OIDC provider, import it first (see the comment in `bootstrap/main.tf`).
+   Answer `yes` when it asks to copy the existing state to S3.
+   An AWS account can have only one GitHub OIDC provider. If yours already has one, set `create_oidc_provider = false` in `stacks/bootstrap/terraform.tfvars` (done for the current account): the stack then only looks it up and never changes or destroys it, so other projects using it are safe.
 4. In the GitHub repository settings: add variables `AWS_PLAN_ROLE_ARN`, `AWS_APPLY_ROLE_ARN` and `TF_STATE_BUCKET` (from the bootstrap outputs), and create an environment named `production` that requires a reviewer and only allows the `main` branch.
 5. Apply the remaining stacks in order with the `apply` workflow. Confirm the SNS email subscription from the email AWS sends.
 6. Give each service repo its deploy role (see [docs/service-deploy.md](docs/service-deploy.md)). Service databases are created by the `apply` workflow when `platform` is applied.

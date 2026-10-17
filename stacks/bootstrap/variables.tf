@@ -19,3 +19,9 @@ variable "infra_repo" {
   description = "Name of this repository, used in the OIDC trust policies."
   default     = "sutd-attendance-infra"
 }
+
+variable "create_oidc_provider" {
+  type        = bool
+  description = "Create the account's GitHub Actions OIDC provider. Set to false when the account already has one (only one per URL is allowed): it is then looked up and never modified or destroyed by this stack."
+  default     = true
+}
