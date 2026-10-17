@@ -26,7 +26,7 @@ Stacks read each other's outputs from SSM parameters under `/prod/<stack>/...`, 
 - **Never run `terraform apply`, `terraform destroy`, `terraform state rm`, `terraform force-unlock`, or any AWS command that creates, changes or deletes resources**, unless the user explicitly asks in that message. `.claude/settings.json` blocks the first four. `terraform plan` needs AWS credentials the user has to provide.
 - No secrets in code, tfvars, logs or commit messages. Never read or print `*.tfstate` or `.env` files.
 - Stateful resources (RDS, state bucket) keep `prevent_destroy` and deletion protection. Do not weaken them to make a change easier.
-- Do not commit or push unless the user asks.
+- Do not commit or push unless the user asks. Never push to `main`: work on a branch and open a pull request. The user merges it (or asks you to) once `ci` is green.
 - Do not invent other teams' repos, domains, emails or account IDs. Use the placeholder values and validations already in the tfvars files.
 
 ## Commands
