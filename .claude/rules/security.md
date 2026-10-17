@@ -7,7 +7,7 @@ paths:
 # Security and safety
 
 - No secrets in code, tfvars, workflow files or logs. Secrets live in Secrets Manager or SSM SecureString. RDS manages the master password.
-- The only secret values that may exist in Terraform state are generated database passwords; the state bucket is private, versioned and encrypted. State exactly this in docs; do not claim "no secrets in state".
+- Generated database passwords are ephemeral values written through write-only attributes, so they are not in Terraform state. The RDS master password is managed by RDS. The state bucket is still private, versioned and encrypted. Keep docs consistent with this; if a change puts a secret into state, say so explicitly.
 - GitHub Actions authenticates with OIDC. No long-lived AWS keys, ever. Trust policies pin the exact repo and ref or environment (`repo:OWNER/REPO:ref:refs/heads/main`), never a wildcard on the repo.
 - Security groups: no `0.0.0.0/0` ingress. Tasks accept traffic only from the ALB security group; RDS only from the services security group.
 - S3 buckets: public access block on, versioning on where state or data matters, encryption on.

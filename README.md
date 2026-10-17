@@ -92,6 +92,10 @@ Read its output in the `/ecs/prod-db-bootstrap` log group. The script is idempot
 - API Gateway access logging to CloudWatch has not been tried end to end.
 - The Loco services' own contracts (config, port 8080, `/_ping`, event names) are proposals until the teams agree them.
 
+## For other teams
+
+Adding a service, a database, API routes or event subscriptions: follow [docs/onboarding.md](docs/onboarding.md). Deploying once registered: [docs/service-deploy.md](docs/service-deploy.md).
+
 ## Decisions
 
 See [docs/adr](docs/adr).

@@ -1,0 +1,8 @@
+# Infrastructure changes need review from the platform maintainers (Team 1-3).
+# To make this binding, enable "Require review from Code Owners" in the protect-main ruleset.
+# When more maintainers join, replace the user with a team handle, for example @org/platform.
+
+/stacks/    @TristanNguyen04
+/modules/   @TristanNguyen04
+/.github/   @TristanNguyen04
+/docs/adr/  @TristanNguyen04
