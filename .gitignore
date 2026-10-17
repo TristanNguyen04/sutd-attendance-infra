@@ -1,0 +1,27 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# Secrets and local config
+.env
+.env.*
+*.pem
+*.key
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# NOTE: .terraform.lock.hcl is intentionally NOT ignored. Commit it.

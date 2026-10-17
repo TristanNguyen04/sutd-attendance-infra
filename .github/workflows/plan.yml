@@ -1,0 +1,66 @@
+name: plan
+
+# Shows what each stack would change. Read-only: it uses the plan role, skips refresh
+# (so it never reads secrets) and takes no state lock.
+on:
+  pull_request:
+    paths:
+      - "stacks/**"
+      - "modules/**"
+      - ".github/workflows/plan.yml"
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: plan-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    # Skipped until the bootstrap stack is applied and the repository variables are set.
+    if: vars.AWS_PLAN_ROLE_ARN != ''
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Same order as the apply order in README.md. A stack's plan fails until the stacks it
+        # reads from have been applied once.
+        stack: [bootstrap, observability, network, data, platform, gateway]
+    defaults:
+      run:
+        working-directory: stacks/${{ matrix.stack }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read Terraform version
+        id: tf
+        working-directory: .
+        run: echo "version=$(cat .terraform-version)" >> "$GITHUB_OUTPUT"
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ steps.tf.outputs.version }}
+          terraform_wrapper: false
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Init
+        run: terraform init -input=false -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+
+      - name: Plan
+        run: terraform plan -input=false -lock=false -refresh=false -no-color | tee plan.txt
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### ${{ matrix.stack }}"
+            echo '```'
+            tail -n 200 plan.txt || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

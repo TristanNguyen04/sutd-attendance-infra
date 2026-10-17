@@ -1,0 +1,147 @@
+name: apply
+
+# Manual. Run it from main, one stack at a time, in the apply order from README.md.
+# The plan job produces a saved plan; the apply job waits for approval on the "production"
+# environment and applies exactly that plan.
+on:
+  workflow_dispatch:
+    inputs:
+      stack:
+        description: Stack to apply
+        type: choice
+        required: true
+        options:
+          - bootstrap
+          - observability
+          - network
+          - data
+          - platform
+          - gateway
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: terraform-apply
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: stacks/${{ inputs.stack }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read Terraform version
+        id: tf
+        working-directory: .
+        run: echo "version=$(cat .terraform-version)" >> "$GITHUB_OUTPUT"
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ steps.tf.outputs.version }}
+          terraform_wrapper: false
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Init
+        run: terraform init -input=false -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+
+      - name: Plan
+        run: terraform plan -input=false -refresh=false -no-color -out=tfplan | tee plan.txt
+
+      - name: Show plan
+        run: |
+          {
+            echo "### ${{ inputs.stack }}"
+            echo '```'
+            tail -n 200 plan.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-${{ inputs.stack }}
+          path: stacks/${{ inputs.stack }}/tfplan
+          retention-days: 1
+
+  apply:
+    needs: plan
+    runs-on: ubuntu-latest
+    environment: production
+    defaults:
+      run:
+        working-directory: stacks/${{ inputs.stack }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read Terraform version
+        id: tf
+        working-directory: .
+        run: echo "version=$(cat .terraform-version)" >> "$GITHUB_OUTPUT"
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ steps.tf.outputs.version }}
+          terraform_wrapper: false
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_APPLY_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: tfplan-${{ inputs.stack }}
+          path: stacks/${{ inputs.stack }}
+
+      - name: Init
+        run: terraform init -input=false -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+
+      - name: Apply
+        run: terraform apply -input=false tfplan
+
+      # Creates the role and database for every service in services.tf. Idempotent, so it is
+      # safe on every platform apply. Runs in this job so it needs no second approval.
+      - name: Create service databases
+        if: inputs.stack == 'platform'
+        timeout-minutes: 15
+        working-directory: .
+        run: |
+          set -euo pipefail
+
+          param() { aws ssm get-parameter --name "$1" --query Parameter.Value --output text; }
+          SUBNETS=$(param /prod/network/public_subnet_ids)
+          SECURITY_GROUP=$(param /prod/network/sg_services)
+
+          OUT=$(aws ecs run-task --cluster prod --launch-type FARGATE \
+            --task-definition prod-db-bootstrap \
+            --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SECURITY_GROUP],assignPublicIp=ENABLED}" \
+            --output json)
+          TASK_ARN=$(echo "$OUT" | jq -r '.tasks[0].taskArn // empty')
+          if [ -z "$TASK_ARN" ]; then
+            echo "run-task failed:"; echo "$OUT" | jq '.failures'; exit 1
+          fi
+
+          aws ecs wait tasks-stopped --cluster prod --tasks "$TASK_ARN"
+
+          TASK_ID="${TASK_ARN##*/}"
+          echo "--- db-bootstrap output"
+          aws logs get-log-events --log-group-name /ecs/prod-db-bootstrap \
+            --log-stream-name "bootstrap/bootstrap/$TASK_ID" \
+            --query 'events[].message' --output text || true
+
+          EXIT_CODE=$(aws ecs describe-tasks --cluster prod --tasks "$TASK_ARN" \
+            --query 'tasks[0].containers[0].exitCode' --output text)
+          if [ "$EXIT_CODE" != "0" ]; then
+            aws ecs describe-tasks --cluster prod --tasks "$TASK_ARN" \
+              --query 'tasks[0].[stoppedReason,containers[0].reason]' --output text
+            echo "db-bootstrap failed (exit code: $EXIT_CODE)"; exit 1
+          fi
